@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Debt Tracker React</title>
+    
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        /* Mobile optimizations */
+        body { -webkit-tap-highlight-color: transparent; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        /* Smooth transitions */
+        .fade-enter { opacity: 0; }
+        .fade-enter-active { opacity: 1; transition: opacity 200ms; }
+        .fade-exit { opacity: 1; }
+        .fade-exit-active { opacity: 0; transition: opacity 200ms; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans h-screen overflow-hidden">
+
+<div id="root"></div>
+
+<script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    // --- ICONS (SVG Components to avoid external dependencies) ---
+    const Icon = ({ path, size = 20, className = "" }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <path d={path} />
+        </svg>
+    );
+
+    const Icons = {
+        Plus: (props) => <Icon path="M5 12h14M12 5v14" {...props} />,
+        Trash: (props) => <Icon path="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" {...props} />,
+        ChevronLeft: (props) => <Icon path="M15 18l-6-6 6-6" {...props} />,
+        Download: (props) => <Icon path="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" {...props} />,
+        TrendingUp: (props) => <Icon path="M23 6l-9.5 9.5-5-5L1 18" {...props} />,
+        Home: (props) => <Icon path="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {...props} />,
+        PieChart: (props) => <Icon path="M21.21 15.89A10 10 0 1 1 8 2.83" {...props} />
+    };
+
+    // --- UTILS ---
+    const formatCurrency = (amount) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+    
+    const formatDate = (dateStr) => {
+        if (!dateStr) return '';
+        return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    };
+
+    // --- MAIN APP COMPONENT ---
+    const App = () => {
+        // --- STATE ---
+        const [view, setView] = useState('home'); // home, detail, dashboard
+        const [subTab, setSubTab] = useState('list'); // list, dashboard
+        const [selectedAccountId, setSelectedAccountId] = useState(null);
+        
+        // Data
+        const [accounts, setAccounts] = useState([]);
+        const [debts, setDebts] = useState([]);
+        const [payments, setPayments] = useState([]);
+
+        // Modals
+        const [modals, setModals] = useState({ addAccount: false, addDebt: false, addPayment: false });
+        
+        // Form Inputs
+        const [newAccountName, setNewAccountName] = useState('');
+        const [debtForm, setDebtForm] = useState({ amount: '', date: '', remark: '', type: 'OWE' }); // type: OWE (I Owe), LENT (They Owe Me)
+        const [payForm, setPayForm] = useState({ amount: '', debtId: null });
+
+        // --- LOAD / SAVE ---
+        useEffect(() => {
+            const savedData = localStorage.getItem('debtTrackerReact');
+            if (savedData) {
+                const parsed = JSON.parse(savedData);
+                setAccounts(parsed.accounts || []);
+                setDebts(parsed.debts || []);
+                setPayments(parsed.payments || []);
+            }
+        }, []);
+
+        useEffect(() => {
+            localStorage.setItem('debtTrackerReact', JSON.stringify({ accounts, debts, payments }));
+        }, [accounts, debts, payments]);
+
+        // --- COMPUTED HELPERS ---
+        const getDebtPaidAmount = (debtId) => payments.filter(p => p.debtId === debtId).reduce((sum, p) => sum + p.amount, 0);
+        const getDebtRemaining = (debt) => debt.amount - getDebtPaidAmount(debt.id);
+        
+        const getAccountStats = (accountId) => {
+            const accDebts = debts.filter(d => d.accountId === accountId);
+            let iOwe = 0;
+            let theyOwe = 0;
+            
+            accDebts.forEach(d => {
+                const remaining = getDebtRemaining(d);
+                if (d.type === 'OWE') iOwe += remaining;
+                else theyOwe += remaining;
+            });
+
+            return { iOwe, theyOwe, count: accDebts.length };
+        };
+
+        const globalStats = useMemo(() => {
+            let totalIOwe = 0;
+            let totalTheyOwe = 0;
+            
+            debts.forEach(d => {
+                const remaining = getDebtRemaining(d);
+                if (d.type === 'OWE') totalIOwe += remaining;
+                else totalTheyOwe += remaining;
+            });
+            
+            return { totalIOwe, totalTheyOwe, net: totalTheyOwe - totalIOwe };
+        }, [debts, payments]);
+
+        // --- ACTIONS ---
+        const handleAddAccount = () => {
+            if (!newAccountName.trim()) return;
+            if (accounts.length >= 50) return alert("Max 50 accounts limit reached.");
+            
+            setAccounts([...accounts, { id: Date.now(), name: newAccountName }]);
+            setNewAccountName('');
+            setModals({ ...modals, addAccount: false });
+        };
+
+        const handleDeleteAccount = (id) => {
+            if (!confirm("Delete account? This will remove all associated history.")) return;
+            setAccounts(accounts.filter(a => a.id !== id));
+            setDebts(debts.filter(d => d.accountId !== id));
+            // Cleanup payments for those debts would be ideal but strictly not required for logic to work, 
+            // but let's keep it clean
+            const debtIds = debts.filter(d => d.accountId === id).map(d => d.id);
+            setPayments(payments.filter(p => !debtIds.includes(p.debtId)));
+        };
+
+        const handleAddDebt = () => {
+            if (!debtForm.amount || !debtForm.date || !selectedAccountId) return;
+            
+            const newDebt = {
+                id: Date.now(),
+                accountId: selectedAccountId,
+                amount: parseFloat(debtForm.amount),
+                date: debtForm.date,
+                remark: debtForm.remark || 'Debt Entry',
+                type: debtForm.type
+            };
+            
+            setDebts([...debts, newDebt]);
+            setModals({ ...modals, addDebt: false });
+            setDebtForm({ amount: '', date: '', remark: '', type: 'OWE' });
+        };
+
+        const handleAddPayment = () => {
+            const amount = parseFloat(payForm.amount);
+            if (!amount || amount <= 0) return;
+            
+            setPayments([...payments, {
+                id: Date.now(),
+                debtId: payForm.debtId,
+                amount: amount,
+                date: new Date().toISOString()
+            }]);
+            
+            setModals({ ...modals, addPayment: false });
+            setPayForm({ amount: '', debtId: null });
+        };
+
+        const exportCSV = () => {
+            let csv = "Type,Date,Account,Remark,Original Amount,Paid,Remaining,Status\n";
+            debts.forEach(d => {
+                const acc = accounts.find(a => a.id === d.accountId)?.name || 'Unknown';
+                const paid = getDebtPaidAmount(d.id);
+                const remaining = d.amount - paid;
+                const status = remaining <= 0 ? "Paid" : "Pending";
+                csv += `${d.type},${d.date},${acc},${d.remark},${d.amount},${paid},${remaining},${status}\n`;
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'debt_tracker_export.csv';
+            a.click();
+        };
+
+        // --- DASHBOARD DATA PREP ---
+        const dashboardData = useMemo(() => {
+            const months = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+            const currentYear = new Date().getFullYear();
+            // Assuming Financial Year starts April of previous year if current month < April
+            // Simplified: Just showing next 12 months logic or fixed FY logic? 
+            // Let's stick to "Financial Year" logic relative to NOW.
+            // If now is Jan 2026, FY is Apr 2025 - Mar 2026.
+            
+            const today = new Date();
+            let startYear = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+            
+            const chartData = months.map((m, index) => {
+                // Calculate month index (0-11) where 0 is Jan
+                // April is 3
+                let monthIndex = (index + 3) % 12;
+                let year = monthIndex < 3 ? startYear + 1 : startYear;
+                
+                const monthStart = new Date(year, monthIndex, 1);
+                const monthEnd = new Date(year, monthIndex + 1, 0);
+
+                // 1. Monthly Payments
+                const monthlyPaid = payments
+                    .filter(p => {
+                        const d = new Date(p.date);
+                        return d >= monthStart && d <= monthEnd;
+                    })
+                    .reduce((sum, p) => sum + p.amount, 0);
+
+                // 2. Cumulative Remaining Debt at END of this month
+                // = (Sum of debts created <= monthEnd) - (Sum of payments made <= monthEnd)
+                const debtsUntilNow = debts.filter(d => new Date(d.date) <= monthEnd);
+                const totalDebtVal = debtsUntilNow.reduce((sum, d) => sum + d.amount, 0);
+                
+                const paymentsUntilNow = payments.filter(p => new Date(p.date) <= monthEnd);
+                const totalPaidVal = paymentsUntilNow.reduce((sum, p) => sum + p.amount, 0);
+                
+                const cumulativeRemaining = Math.max(0, totalDebtVal - totalPaidVal);
+
+                return { label: `${m} '${String(year).slice(2)}`, paid: monthlyPaid, remaining: cumulativeRemaining };
+            });
+
+            return chartData;
+        }, [debts, payments]);
+
+        // --- RENDERERS ---
+
+        const renderHome = () => (
+            <div className="pb-24">
+                {/* Summary Box */}
+                <div className="bg-white p-4 mb-4 shadow-sm border-b border-gray-200 sticky top-0 z-10">
+                    <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                        <div className="p-2 bg-red-50 rounded">
+                            <p className="text-xs text-red-500 font-bold uppercase">I Owe</p>
+                            <p className="font-bold text-red-700 text-sm md:text-base">{formatCurrency(globalStats.totalIOwe)}</p>
+                        </div>
+                        <div className="p-2 bg-green-50 rounded">
+                            <p className="text-xs text-green-500 font-bold uppercase">They Owe</p>
+                            <p className="font-bold text-green-700 text-sm md:text-base">{formatCurrency(globalStats.totalTheyOwe)}</p>
+                        </div>
+                        <div className="p-2 bg-indigo-50 rounded">
+                            <p className="text-xs text-indigo-500 font-bold uppercase">Net</p>
+                            <p className={`font-bold text-sm md:text-base ${globalStats.net >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                {globalStats.net >= 0 ? '+' : ''}{formatCurrency(globalStats.net)}
+                            </p>
+                        </div>
+                    </div>
+                    <button onClick={exportCSV} className="w-full text-xs flex justify-center items-center gap-1 text-gray-400 hover:text-indigo-600">
+                        <Icons.Download size={14} /> Export Data (CSV)
+                    </button>
+                </div>
+
+                {/* Account List */}
+                <div className="px-4 space-y-3">
+                    {accounts.length === 0 && (
+                        <div className="text-center py-10 text-gray-400">
+                            <p>No accounts yet.</p>
+                            <p className="text-sm">Tap + to add one.</p>
+                        </div>
+                    )}
+                    {accounts.map(acc => {
+                        const stats = getAccountStats(acc.id);
+                        return (
+                            <div key={acc.id} onClick={() => { setSelectedAccountId(acc.id); setView('detail'); }}
+                                className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center active:bg-gray-50 transition cursor-pointer">
+                                <div>
+                                    <h3 className="font-bold text-gray-800 text-lg">{acc.name}</h3>
+                                    <p className="text-xs text-gray-400">{stats.count} entries</p>
+                                </div>
+                                <div className="text-right">
+                                    {stats.iOwe > 0 && <p className="text-sm text-red-600 font-bold">-{formatCurrency(stats.iOwe)}</p>}
+                                    {stats.theyOwe > 0 && <p className="text-sm text-green-600 font-bold">+{formatCurrency(stats.theyOwe)}</p>}
+                                    {stats.iOwe === 0 && stats.theyOwe === 0 && <p className="text-xs text-gray-300 font-medium">Settled</p>}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* FAB */}
+                <button onClick={() => setModals({ ...modals, addAccount: true })} 
+                    className="fixed bottom-20 right-6 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 transition active:scale-95 z-20">
+                    <Icons.Plus size={28} />
+                </button>
+            </div>
+        );
+
+        const renderDetail = () => {
+            const acc = accounts.find(a => a.id === selectedAccountId);
+            if (!acc) return null;
+            const accDebts = debts.filter(d => d.accountId === acc.id).sort((a,b) => new Date(b.date) - new Date(a.date));
+            const stats = getAccountStats(acc.id);
+
+            return (
+                <div className="pb-24">
+                    {/* Header */}
+                    <div className="bg-indigo-600 text-white p-4 sticky top-0 z-10 shadow-md">
+                        <div className="flex items-center gap-2 mb-4">
+                            <button onClick={() => setView('home')}><Icons.ChevronLeft /></button>
+                            <h2 className="font-bold text-lg">{acc.name}</h2>
+                            <div className="flex-1 text-right">
+                                <button onClick={() => handleDeleteAccount(acc.id)} className="text-indigo-200 hover:text-white"><Icons.Trash size={18} /></button>
+                            </div>
+                        </div>
+                        <div className="flex justify-between items-end">
+                            <div>
+                                <p className="text-indigo-200 text-xs uppercase">Net Remaining</p>
+                                <p className="text-2xl font-bold">
+                                    {formatCurrency(stats.theyOwe - stats.iOwe)}
+                                </p>
+                            </div>
+                            <button onClick={() => setModals({ ...modals, addDebt: true })} className="bg-white text-indigo-600 text-xs font-bold px-3 py-1.5 rounded-lg shadow">
+                                + Add Entry
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* List */}
+                    <div className="p-4 space-y-4">
+                        {accDebts.length === 0 && <div className="text-center text-gray-400 mt-10">No history.</div>}
+                        
+                        {accDebts.map(debt => {
+                            const paid = getDebtPaidAmount(debt.id);
+                            const remaining = debt.amount - paid;
+                            const isPaid = remaining <= 0;
+                            const progress = Math.min(100, (paid / debt.amount) * 100);
+                            const debtTxns = payments.filter(p => p.debtId === debt.id);
+
+                            return (
+                                <div key={debt.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm relative overflow-hidden">
+                                    {/* Color Strip */}
+                                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${isPaid ? 'bg-green-500' : (debt.type === 'OWE' ? 'bg-red-500' : 'bg-green-400')}`}></div>
+                                    
+                                    <div className="pl-3">
+                                        <div className="flex justify-between items-start mb-1">
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${debt.type === 'OWE' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                                        {debt.type === 'OWE' ? 'I OWE' : 'THEY OWE'}
+                                                    </span>
+                                                    <span className="text-xs text-gray-400">{formatDate(debt.date)}</span>
+                                                </div>
+                                                <p className="font-bold text-gray-800 mt-1">{debt.remark}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="font-bold text-gray-900">{formatCurrency(debt.amount)}</p>
+                                                {!isPaid && <p className="text-xs text-orange-500 font-medium">Bal: {formatCurrency(remaining)}</p>}
+                                                {isPaid && <p className="text-xs text-green-600 font-bold">CLEARED</p>}
+                                            </div>
+                                        </div>
+
+                                        {/* Progress Bar */}
+                                        <div className="w-full bg-gray-100 rounded-full h-1.5 mb-2 mt-2">
+                                            <div className="bg-green-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                                        </div>
+
+                                        {/* History */}
+                                        {debtTxns.length > 0 && (
+                                            <div className="bg-gray-50 rounded p-2 text-xs space-y-1 mb-2">
+                                                {debtTxns.map(tx => (
+                                                    <div key={tx.id} className="flex justify-between text-gray-500">
+                                                        <span>Pd: {formatDate(tx.date)}</span>
+                                                        <span className="text-green-600 font-medium">+{formatCurrency(tx.amount)}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* Action */}
+                                        {!isPaid && (
+                                            <div className="flex justify-end mt-2">
+                                                <button onClick={() => { setPayForm({ amount: '', debtId: debt.id }); setModals({...modals, addPayment: true}); }} 
+                                                    className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded hover:bg-indigo-100 font-medium">
+                                                    Record Payment
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        };
+
+        const renderDashboard = () => (
+            <div className="p-4 pb-24 overflow-y-auto h-full">
+                <h2 className="text-xl font-bold mb-6 text-gray-800">Financial Dashboard</h2>
+                
+                {/* Global Summary Cards */}
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                    <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+                        <p className="text-xs text-red-500 uppercase font-bold mb-1">Total I Owe</p>
+                        <p className="text-xl font-bold text-red-800">{formatCurrency(globalStats.totalIOwe)}</p>
+                    </div>
+                    <div className="bg-green-50 p-4 rounded-xl border border-green-100">
+                        <p className="text-xs text-green-500 uppercase font-bold mb-1">Total Due to Me</p>
+                        <p className="text-xl font-bold text-green-800">{formatCurrency(globalStats.totalTheyOwe)}</p>
+                    </div>
+                </div>
+
+                {/* Chart 1: Monthly Payments */}
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
+                    <h3 className="text-sm font-bold text-gray-500 mb-4 uppercase tracking-wide">Payments Made (This FY)</h3>
+                    <div className="space-y-3">
+                        {dashboardData.map((d, i) => (
+                            <div key={i} className="flex items-center text-xs">
+                                <div className="w-12 text-gray-400 font-mono">{d.label.split(' ')[0]}</div>
+                                <div className="flex-1 h-6 bg-gray-100 rounded-r overflow-hidden relative">
+                                    <div className="h-full bg-indigo-500 rounded-r flex items-center px-2 text-white transition-all duration-700" 
+                                         style={{ width: `${Math.max(0, (d.paid / (Math.max(...dashboardData.map(x=>x.paid)) || 1)) * 100)}%` }}>
+                                         {d.paid > 0 && formatCurrency(d.paid)}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Chart 2: Cumulative Debt */}
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                    <h3 className="text-sm font-bold text-gray-500 mb-4 uppercase tracking-wide">Total Remaining Debt (Trend)</h3>
+                    <div className="space-y-3">
+                        {dashboardData.map((d, i) => (
+                            <div key={i} className="flex items-center text-xs">
+                                <div className="w-12 text-gray-400 font-mono">{d.label.split(' ')[0]}</div>
+                                <div className="flex-1 h-6 bg-gray-100 rounded-r overflow-hidden relative">
+                                    <div className="h-full bg-orange-400 rounded-r flex items-center px-2 text-white transition-all duration-700" 
+                                         style={{ width: `${Math.max(0, (d.remaining / (Math.max(...dashboardData.map(x=>x.remaining)) || 1)) * 100)}%` }}>
+                                         {d.remaining > 0 && formatCurrency(d.remaining)}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        );
+
+        // --- MAIN RENDER ---
+        return (
+            <div className="flex flex-col h-full max-w-md mx-auto bg-gray-50 shadow-2xl relative">
+                
+                {/* Content Area */}
+                <div className="flex-1 overflow-y-auto hide-scrollbar">
+                    {subTab === 'dashboard' ? renderDashboard() : (view === 'detail' ? renderDetail() : renderHome())}
+                </div>
+
+                {/* Bottom Navigation */}
+                <div className="bg-white border-t border-gray-200 p-2 flex justify-around items-center absolute bottom-0 w-full z-30 pb-safe">
+                    <button onClick={() => { setSubTab('list'); setView('home'); }} 
+                        className={`flex flex-col items-center p-2 rounded-lg w-16 transition ${subTab === 'list' ? 'text-indigo-600' : 'text-gray-400'}`}>
+                        <Icons.Home />
+                        <span className="text-[10px] mt-1 font-medium">Accounts</span>
+                    </button>
+                    <button onClick={() => { setSubTab('dashboard'); setView('home'); }} 
+                        className={`flex flex-col items-center p-2 rounded-lg w-16 transition ${subTab === 'dashboard' ? 'text-indigo-600' : 'text-gray-400'}`}>
+                        <Icons.PieChart />
+                        <span className="text-[10px] mt-1 font-medium">Dashboard</span>
+                    </button>
+                </div>
+
+                {/* MODALS */}
+                
+                {/* 1. Add Account */}
+                {modals.addAccount && (
+                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                        <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-[fade_0.2s]">
+                            <h3 className="text-lg font-bold mb-4">Add Account</h3>
+                            <input autoFocus value={newAccountName} onChange={e => setNewAccountName(e.target.value)} 
+                                placeholder="Name (e.g. HDFC Loan, John)" className="w-full border p-3 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-indigo-500" />
+                            <div className="flex justify-end gap-2">
+                                <button onClick={() => setModals({...modals, addAccount: false})} className="px-4 py-2 text-gray-500">Cancel</button>
+                                <button onClick={handleAddAccount} className="px-6 py-2 bg-indigo-600 text-white rounded-lg">Save</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 2. Add Debt */}
+                {modals.addDebt && (
+                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                        <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-[fade_0.2s]">
+                            <h3 className="text-lg font-bold mb-4">New Entry</h3>
+                            
+                            {/* Direction Toggle */}
+                            <div className="flex bg-gray-100 p-1 rounded-lg mb-4">
+                                <button onClick={() => setDebtForm({...debtForm, type: 'OWE'})} 
+                                    className={`flex-1 py-2 text-xs font-bold rounded-md transition ${debtForm.type === 'OWE' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>
+                                    I OWE
+                                </button>
+                                <button onClick={() => setDebtForm({...debtForm, type: 'LENT'})} 
+                                    className={`flex-1 py-2 text-xs font-bold rounded-md transition ${debtForm.type === 'LENT' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500'}`}>
+                                    THEY OWE ME
+                                </button>
+                            </div>
+
+                            <input type="number" value={debtForm.amount} onChange={e => setDebtForm({...debtForm, amount: e.target.value})} 
+                                placeholder="Amount (₹)" className="w-full border p-3 rounded-lg mb-3 outline-none focus:ring-2 focus:ring-indigo-500" />
+                            
+                            <input type="date" value={debtForm.date} onChange={e => setDebtForm({...debtForm, date: e.target.value})} 
+                                className="w-full border p-3 rounded-lg mb-3 outline-none focus:ring-2 focus:ring-indigo-500" />
+                            
+                            <input value={debtForm.remark} onChange={e => setDebtForm({...debtForm, remark: e.target.value})} 
+                                placeholder="Remark (e.g. Dinner, Rent)" className="w-full border p-3 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-indigo-500" />
+
+                            <div className="flex justify-end gap-2">
+                                <button onClick={() => setModals({...modals, addDebt: false})} className="px-4 py-2 text-gray-500">Cancel</button>
+                                <button onClick={handleAddDebt} className="px-6 py-2 bg-indigo-600 text-white rounded-lg">Save</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 3. Make Payment */}
+                {modals.addPayment && (
+                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                        <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-[fade_0.2s]">
+                            <h3 className="text-lg font-bold mb-2">Record Payment</h3>
+                            <p className="text-xs text-gray-400 mb-4">Payment will be deducted from the outstanding amount.</p>
+                            
+                            <input type="number" autoFocus value={payForm.amount} onChange={e => setPayForm({...payForm, amount: e.target.value})} 
+                                placeholder="Amount Paid (₹)" className="w-full border p-3 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-green-500" />
+                            
+                            <div className="flex justify-end gap-2">
+                                <button onClick={() => setModals({...modals, addPayment: false})} className="px-4 py-2 text-gray-500">Cancel</button>
+                                <button onClick={handleAddPayment} className="px-6 py-2 bg-green-600 text-white rounded-lg">Record</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Debt Tracker React</title>
     
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -13,6 +13,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
 
     <style>
+        /* Force height to match dynamic mobile viewport */
+        html, body { height: 100dvh; margin: 0; padding: 0; overflow: hidden; }
+        
         /* Mobile optimizations */
         body { -webkit-tap-highlight-color: transparent; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
@@ -28,9 +31,9 @@
         }
     </style>
 </head>
-<body class="bg-gray-50 text-gray-800 font-sans h-screen overflow-hidden">
+<body class="bg-gray-50 text-gray-800 font-sans">
 
-<div id="root"></div>
+<div id="root" class="h-full"></div>
 
 <script type="text/babel">
     const { useState, useEffect, useMemo } = React;
@@ -62,25 +65,20 @@
 
     // --- MAIN APP COMPONENT ---
     const App = () => {
-        // --- STATE ---
         const [view, setView] = useState('home'); 
         const [subTab, setSubTab] = useState('list');
         const [selectedAccountId, setSelectedAccountId] = useState(null);
         
-        // Data
         const [accounts, setAccounts] = useState([]);
         const [debts, setDebts] = useState([]);
         const [payments, setPayments] = useState([]);
 
-        // Modals
         const [modals, setModals] = useState({ addAccount: false, addDebt: false, addPayment: false });
         
-        // Form Inputs
         const [newAccountName, setNewAccountName] = useState('');
         const [debtForm, setDebtForm] = useState({ amount: '', date: '', remark: '', type: 'OWE' });
         const [payForm, setPayForm] = useState({ amount: '', debtId: null });
 
-        // --- LOAD / SAVE ---
         useEffect(() => {
             const savedData = localStorage.getItem('debtTrackerReact');
             if (savedData) {
@@ -97,7 +95,6 @@
             localStorage.setItem('debtTrackerReact', JSON.stringify({ accounts, debts, payments }));
         }, [accounts, debts, payments]);
 
-        // --- COMPUTED HELPERS ---
         const getDebtPaidAmount = (debtId) => payments.filter(p => p.debtId === debtId).reduce((sum, p) => sum + p.amount, 0);
         const getDebtRemaining = (debt) => debt.amount - getDebtPaidAmount(debt.id);
         
@@ -197,7 +194,6 @@
             a.click();
         };
 
-        // --- DASHBOARD DATA PREP ---
         const dashboardData = useMemo(() => {
             const months = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
             const today = new Date();
@@ -210,30 +206,24 @@
                 const monthStart = new Date(year, monthIndex, 1);
                 const monthEnd = new Date(year, monthIndex + 1, 0);
 
-                const monthlyPaid = payments
-                    .filter(p => {
-                        const d = new Date(p.date);
-                        return d >= monthStart && d <= monthEnd;
-                    })
-                    .reduce((sum, p) => sum + p.amount, 0);
+                const monthlyPaid = payments.filter(p => {
+                    const d = new Date(p.date);
+                    return d >= monthStart && d <= monthEnd;
+                }).reduce((sum, p) => sum + p.amount, 0);
 
                 const debtsUntilNow = debts.filter(d => new Date(d.date) <= monthEnd);
                 const totalDebtVal = debtsUntilNow.reduce((sum, d) => sum + d.amount, 0);
-                
                 const paymentsUntilNow = payments.filter(p => new Date(p.date) <= monthEnd);
                 const totalPaidVal = paymentsUntilNow.reduce((sum, p) => sum + p.amount, 0);
                 
-                const cumulativeRemaining = Math.max(0, totalDebtVal - totalPaidVal);
-
-                return { label: `${m} '${String(year).slice(2)}`, paid: monthlyPaid, remaining: cumulativeRemaining };
+                return { label: `${m} '${String(year).slice(2)}`, paid: monthlyPaid, remaining: Math.max(0, totalDebtVal - totalPaidVal) };
             });
         }, [debts, payments]);
 
         // --- RENDERERS ---
 
         const renderHome = () => (
-            <div className="pb-24">
-                {/* Summary Box */}
+            <div className="pb-4">
                 <div className="bg-white p-4 mb-4 shadow-sm border-b border-gray-200 sticky top-0 z-10">
                     <div className="grid grid-cols-3 gap-2 text-center mb-3">
                         <div className="p-2 bg-red-50 rounded">
@@ -256,7 +246,6 @@
                     </button>
                 </div>
 
-                {/* Account List */}
                 <div className="px-4 space-y-3">
                     {accounts.length === 0 && (
                         <div className="text-center py-10 text-gray-400">
@@ -292,8 +281,7 @@
             const stats = getAccountStats(acc.id);
 
             return (
-                <div className="pb-24">
-                    {/* Header */}
+                <div className="pb-4">
                     <div className="bg-indigo-600 text-white p-4 sticky top-0 z-10 shadow-md">
                         <div className="flex items-center gap-2 mb-4">
                             <button onClick={() => setView('home')}><Icons.ChevronLeft /></button>
@@ -315,7 +303,6 @@
                         </div>
                     </div>
 
-                    {/* List */}
                     <div className="p-4 space-y-4">
                         {accDebts.length === 0 && <div className="text-center text-gray-400 mt-10">No history.</div>}
                         
@@ -380,7 +367,7 @@
         };
 
         const renderDashboard = () => (
-            <div className="p-4 pb-24 overflow-y-auto h-full">
+            <div className="p-4 pb-4 overflow-y-auto">
                 <h2 className="text-xl font-bold mb-6 text-gray-800">Financial Dashboard</h2>
                 <div className="grid grid-cols-2 gap-4 mb-8">
                     <div className="bg-red-50 p-4 rounded-xl border border-red-100">
@@ -392,7 +379,6 @@
                         <p className="text-xl font-bold text-green-800">{formatCurrency(globalStats.totalTheyOwe)}</p>
                     </div>
                 </div>
-                {/* Charts rendered here... */}
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
                     <h3 className="text-sm font-bold text-gray-500 mb-4 uppercase tracking-wide">Payments Made (This FY)</h3>
                     <div className="space-y-3">
@@ -412,25 +398,24 @@
             </div>
         );
 
-        // --- MAIN RENDER ---
         return (
             <div className="flex flex-col h-full max-w-md mx-auto bg-gray-50 shadow-2xl relative">
                 
-                {/* Content Area */}
-                <div className="flex-1 overflow-y-auto hide-scrollbar">
+                {/* 1. Scrollable Content Area - Flex Grow */}
+                <div className="flex-1 overflow-y-auto hide-scrollbar relative">
                     {subTab === 'dashboard' ? renderDashboard() : (view === 'detail' ? renderDetail() : renderHome())}
+                    
+                    {/* Floating Add Button (Inside Content to share relative context, but fixed via absolute to content container) */}
+                    {view === 'home' && subTab === 'list' && (
+                        <button onClick={() => setModals({ ...modals, addAccount: true })} 
+                            className="sticky float-right right-6 bottom-6 -mt-20 mr-6 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 transition active:scale-95 z-40">
+                            <Icons.Plus size={28} />
+                        </button>
+                    )}
                 </div>
 
-                {/* --- FLOATING ACTION BUTTON (Moved here for better Z-Index) --- */}
-                {view === 'home' && subTab === 'list' && (
-                    <button onClick={() => setModals({ ...modals, addAccount: true })} 
-                        className="fixed bottom-24 right-6 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 transition active:scale-95 z-40">
-                        <Icons.Plus size={28} />
-                    </button>
-                )}
-
-                {/* Bottom Navigation */}
-                <div className="bg-white border-t border-gray-200 p-2 flex justify-around items-center absolute bottom-0 w-full z-30 pb-safe">
+                {/* 2. Bottom Navigation - Flex Fixed */}
+                <div className="shrink-0 bg-white border-t border-gray-200 p-2 flex justify-around items-center z-30 pb-[env(safe-area-inset-bottom,20px)]">
                     <button onClick={() => { setSubTab('list'); setView('home'); }} 
                         className={`flex flex-col items-center p-2 rounded-lg w-16 transition ${subTab === 'list' ? 'text-indigo-600' : 'text-gray-400'}`}>
                         <Icons.Home />
@@ -444,8 +429,6 @@
                 </div>
 
                 {/* MODALS */}
-                
-                {/* 1. Add Account */}
                 {modals.addAccount && (
                     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                         <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-fade">
@@ -460,12 +443,10 @@
                     </div>
                 )}
 
-                {/* 2. Add Debt */}
                 {modals.addDebt && (
                     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                         <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-fade">
                             <h3 className="text-lg font-bold mb-4">New Entry</h3>
-                            
                             <div className="flex bg-gray-100 p-1 rounded-lg mb-4">
                                 <button onClick={() => setDebtForm({...debtForm, type: 'OWE'})} 
                                     className={`flex-1 py-2 text-xs font-bold rounded-md transition ${debtForm.type === 'OWE' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>
@@ -476,16 +457,12 @@
                                     THEY OWE ME
                                 </button>
                             </div>
-
                             <input type="number" value={debtForm.amount} onChange={e => setDebtForm({...debtForm, amount: e.target.value})} 
                                 placeholder="Amount (₹)" className="w-full border p-3 rounded-lg mb-3 outline-none focus:ring-2 focus:ring-indigo-500" />
-                            
                             <input type="date" value={debtForm.date} onChange={e => setDebtForm({...debtForm, date: e.target.value})} 
                                 className="w-full border p-3 rounded-lg mb-3 outline-none focus:ring-2 focus:ring-indigo-500" />
-                            
                             <input value={debtForm.remark} onChange={e => setDebtForm({...debtForm, remark: e.target.value})} 
                                 placeholder="Remark (e.g. Dinner, Rent)" className="w-full border p-3 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-indigo-500" />
-
                             <div className="flex justify-end gap-2">
                                 <button onClick={() => setModals({...modals, addDebt: false})} className="px-4 py-2 text-gray-500 font-medium">Cancel</button>
                                 <button onClick={handleAddDebt} className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium">Save</button>
@@ -494,16 +471,13 @@
                     </div>
                 )}
 
-                {/* 3. Make Payment */}
                 {modals.addPayment && (
                     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                         <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-fade">
                             <h3 className="text-lg font-bold mb-2">Record Payment</h3>
                             <p className="text-xs text-gray-400 mb-4">Payment will be deducted from the outstanding amount.</p>
-                            
                             <input type="number" autoFocus value={payForm.amount} onChange={e => setPayForm({...payForm, amount: e.target.value})} 
                                 placeholder="Amount Paid (₹)" className="w-full border p-3 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-green-500" />
-                            
                             <div className="flex justify-end gap-2">
                                 <button onClick={() => setModals({...modals, addPayment: false})} className="px-4 py-2 text-gray-500 font-medium">Cancel</button>
                                 <button onClick={handleAddPayment} className="px-6 py-2 bg-green-600 text-white rounded-lg font-medium">Record</button>
@@ -520,4 +494,3 @@
 </script>
 </body>
 </html>
-

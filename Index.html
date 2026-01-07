@@ -17,11 +17,15 @@
         body { -webkit-tap-highlight-color: transparent; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        /* Smooth transitions */
-        .fade-enter { opacity: 0; }
-        .fade-enter-active { opacity: 1; transition: opacity 200ms; }
-        .fade-exit { opacity: 1; }
-        .fade-exit-active { opacity: 0; transition: opacity 200ms; }
+        
+        /* Animation Definitions */
+        @keyframes fade {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .animate-fade {
+            animation: fade 0.2s ease-out forwards;
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans h-screen overflow-hidden">
@@ -31,7 +35,7 @@
 <script type="text/babel">
     const { useState, useEffect, useMemo } = React;
 
-    // --- ICONS (SVG Components to avoid external dependencies) ---
+    // --- ICONS ---
     const Icon = ({ path, size = 20, className = "" }) => (
         <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
             <path d={path} />
@@ -59,8 +63,8 @@
     // --- MAIN APP COMPONENT ---
     const App = () => {
         // --- STATE ---
-        const [view, setView] = useState('home'); // home, detail, dashboard
-        const [subTab, setSubTab] = useState('list'); // list, dashboard
+        const [view, setView] = useState('home'); 
+        const [subTab, setSubTab] = useState('list');
         const [selectedAccountId, setSelectedAccountId] = useState(null);
         
         // Data
@@ -73,17 +77,19 @@
         
         // Form Inputs
         const [newAccountName, setNewAccountName] = useState('');
-        const [debtForm, setDebtForm] = useState({ amount: '', date: '', remark: '', type: 'OWE' }); // type: OWE (I Owe), LENT (They Owe Me)
+        const [debtForm, setDebtForm] = useState({ amount: '', date: '', remark: '', type: 'OWE' });
         const [payForm, setPayForm] = useState({ amount: '', debtId: null });
 
         // --- LOAD / SAVE ---
         useEffect(() => {
             const savedData = localStorage.getItem('debtTrackerReact');
             if (savedData) {
-                const parsed = JSON.parse(savedData);
-                setAccounts(parsed.accounts || []);
-                setDebts(parsed.debts || []);
-                setPayments(parsed.payments || []);
+                try {
+                    const parsed = JSON.parse(savedData);
+                    setAccounts(parsed.accounts || []);
+                    setDebts(parsed.debts || []);
+                    setPayments(parsed.payments || []);
+                } catch(e) { console.error("Load error", e); }
             }
         }, []);
 
@@ -136,10 +142,9 @@
             if (!confirm("Delete account? This will remove all associated history.")) return;
             setAccounts(accounts.filter(a => a.id !== id));
             setDebts(debts.filter(d => d.accountId !== id));
-            // Cleanup payments for those debts would be ideal but strictly not required for logic to work, 
-            // but let's keep it clean
             const debtIds = debts.filter(d => d.accountId === id).map(d => d.id);
             setPayments(payments.filter(p => !debtIds.includes(p.debtId)));
+            setView('home');
         };
 
         const handleAddDebt = () => {
@@ -195,25 +200,16 @@
         // --- DASHBOARD DATA PREP ---
         const dashboardData = useMemo(() => {
             const months = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
-            const currentYear = new Date().getFullYear();
-            // Assuming Financial Year starts April of previous year if current month < April
-            // Simplified: Just showing next 12 months logic or fixed FY logic? 
-            // Let's stick to "Financial Year" logic relative to NOW.
-            // If now is Jan 2026, FY is Apr 2025 - Mar 2026.
-            
             const today = new Date();
             let startYear = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
             
-            const chartData = months.map((m, index) => {
-                // Calculate month index (0-11) where 0 is Jan
-                // April is 3
+            return months.map((m, index) => {
                 let monthIndex = (index + 3) % 12;
                 let year = monthIndex < 3 ? startYear + 1 : startYear;
                 
                 const monthStart = new Date(year, monthIndex, 1);
                 const monthEnd = new Date(year, monthIndex + 1, 0);
 
-                // 1. Monthly Payments
                 const monthlyPaid = payments
                     .filter(p => {
                         const d = new Date(p.date);
@@ -221,8 +217,6 @@
                     })
                     .reduce((sum, p) => sum + p.amount, 0);
 
-                // 2. Cumulative Remaining Debt at END of this month
-                // = (Sum of debts created <= monthEnd) - (Sum of payments made <= monthEnd)
                 const debtsUntilNow = debts.filter(d => new Date(d.date) <= monthEnd);
                 const totalDebtVal = debtsUntilNow.reduce((sum, d) => sum + d.amount, 0);
                 
@@ -233,8 +227,6 @@
 
                 return { label: `${m} '${String(year).slice(2)}`, paid: monthlyPaid, remaining: cumulativeRemaining };
             });
-
-            return chartData;
         }, [debts, payments]);
 
         // --- RENDERERS ---
@@ -290,12 +282,6 @@
                         );
                     })}
                 </div>
-
-                {/* FAB */}
-                <button onClick={() => setModals({ ...modals, addAccount: true })} 
-                    className="fixed bottom-20 right-6 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 transition active:scale-95 z-20">
-                    <Icons.Plus size={28} />
-                </button>
             </div>
         );
 
@@ -342,9 +328,7 @@
 
                             return (
                                 <div key={debt.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                                    {/* Color Strip */}
                                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${isPaid ? 'bg-green-500' : (debt.type === 'OWE' ? 'bg-red-500' : 'bg-green-400')}`}></div>
-                                    
                                     <div className="pl-3">
                                         <div className="flex justify-between items-start mb-1">
                                             <div>
@@ -363,12 +347,10 @@
                                             </div>
                                         </div>
 
-                                        {/* Progress Bar */}
                                         <div className="w-full bg-gray-100 rounded-full h-1.5 mb-2 mt-2">
                                             <div className="bg-green-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
                                         </div>
 
-                                        {/* History */}
                                         {debtTxns.length > 0 && (
                                             <div className="bg-gray-50 rounded p-2 text-xs space-y-1 mb-2">
                                                 {debtTxns.map(tx => (
@@ -380,7 +362,6 @@
                                             </div>
                                         )}
 
-                                        {/* Action */}
                                         {!isPaid && (
                                             <div className="flex justify-end mt-2">
                                                 <button onClick={() => { setPayForm({ amount: '', debtId: debt.id }); setModals({...modals, addPayment: true}); }} 
@@ -401,8 +382,6 @@
         const renderDashboard = () => (
             <div className="p-4 pb-24 overflow-y-auto h-full">
                 <h2 className="text-xl font-bold mb-6 text-gray-800">Financial Dashboard</h2>
-                
-                {/* Global Summary Cards */}
                 <div className="grid grid-cols-2 gap-4 mb-8">
                     <div className="bg-red-50 p-4 rounded-xl border border-red-100">
                         <p className="text-xs text-red-500 uppercase font-bold mb-1">Total I Owe</p>
@@ -413,8 +392,7 @@
                         <p className="text-xl font-bold text-green-800">{formatCurrency(globalStats.totalTheyOwe)}</p>
                     </div>
                 </div>
-
-                {/* Chart 1: Monthly Payments */}
+                {/* Charts rendered here... */}
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
                     <h3 className="text-sm font-bold text-gray-500 mb-4 uppercase tracking-wide">Payments Made (This FY)</h3>
                     <div className="space-y-3">
@@ -425,24 +403,6 @@
                                     <div className="h-full bg-indigo-500 rounded-r flex items-center px-2 text-white transition-all duration-700" 
                                          style={{ width: `${Math.max(0, (d.paid / (Math.max(...dashboardData.map(x=>x.paid)) || 1)) * 100)}%` }}>
                                          {d.paid > 0 && formatCurrency(d.paid)}
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Chart 2: Cumulative Debt */}
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                    <h3 className="text-sm font-bold text-gray-500 mb-4 uppercase tracking-wide">Total Remaining Debt (Trend)</h3>
-                    <div className="space-y-3">
-                        {dashboardData.map((d, i) => (
-                            <div key={i} className="flex items-center text-xs">
-                                <div className="w-12 text-gray-400 font-mono">{d.label.split(' ')[0]}</div>
-                                <div className="flex-1 h-6 bg-gray-100 rounded-r overflow-hidden relative">
-                                    <div className="h-full bg-orange-400 rounded-r flex items-center px-2 text-white transition-all duration-700" 
-                                         style={{ width: `${Math.max(0, (d.remaining / (Math.max(...dashboardData.map(x=>x.remaining)) || 1)) * 100)}%` }}>
-                                         {d.remaining > 0 && formatCurrency(d.remaining)}
                                     </div>
                                 </div>
                             </div>
@@ -460,6 +420,14 @@
                 <div className="flex-1 overflow-y-auto hide-scrollbar">
                     {subTab === 'dashboard' ? renderDashboard() : (view === 'detail' ? renderDetail() : renderHome())}
                 </div>
+
+                {/* --- FLOATING ACTION BUTTON (Moved here for better Z-Index) --- */}
+                {view === 'home' && subTab === 'list' && (
+                    <button onClick={() => setModals({ ...modals, addAccount: true })} 
+                        className="fixed bottom-24 right-6 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 transition active:scale-95 z-40">
+                        <Icons.Plus size={28} />
+                    </button>
+                )}
 
                 {/* Bottom Navigation */}
                 <div className="bg-white border-t border-gray-200 p-2 flex justify-around items-center absolute bottom-0 w-full z-30 pb-safe">
@@ -479,14 +447,14 @@
                 
                 {/* 1. Add Account */}
                 {modals.addAccount && (
-                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                        <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-[fade_0.2s]">
+                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                        <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-fade">
                             <h3 className="text-lg font-bold mb-4">Add Account</h3>
                             <input autoFocus value={newAccountName} onChange={e => setNewAccountName(e.target.value)} 
                                 placeholder="Name (e.g. HDFC Loan, John)" className="w-full border p-3 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-indigo-500" />
                             <div className="flex justify-end gap-2">
-                                <button onClick={() => setModals({...modals, addAccount: false})} className="px-4 py-2 text-gray-500">Cancel</button>
-                                <button onClick={handleAddAccount} className="px-6 py-2 bg-indigo-600 text-white rounded-lg">Save</button>
+                                <button onClick={() => setModals({...modals, addAccount: false})} className="px-4 py-2 text-gray-500 font-medium">Cancel</button>
+                                <button onClick={handleAddAccount} className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium">Save</button>
                             </div>
                         </div>
                     </div>
@@ -494,11 +462,10 @@
 
                 {/* 2. Add Debt */}
                 {modals.addDebt && (
-                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                        <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-[fade_0.2s]">
+                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                        <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-fade">
                             <h3 className="text-lg font-bold mb-4">New Entry</h3>
                             
-                            {/* Direction Toggle */}
                             <div className="flex bg-gray-100 p-1 rounded-lg mb-4">
                                 <button onClick={() => setDebtForm({...debtForm, type: 'OWE'})} 
                                     className={`flex-1 py-2 text-xs font-bold rounded-md transition ${debtForm.type === 'OWE' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>
@@ -520,8 +487,8 @@
                                 placeholder="Remark (e.g. Dinner, Rent)" className="w-full border p-3 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-indigo-500" />
 
                             <div className="flex justify-end gap-2">
-                                <button onClick={() => setModals({...modals, addDebt: false})} className="px-4 py-2 text-gray-500">Cancel</button>
-                                <button onClick={handleAddDebt} className="px-6 py-2 bg-indigo-600 text-white rounded-lg">Save</button>
+                                <button onClick={() => setModals({...modals, addDebt: false})} className="px-4 py-2 text-gray-500 font-medium">Cancel</button>
+                                <button onClick={handleAddDebt} className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium">Save</button>
                             </div>
                         </div>
                     </div>
@@ -529,8 +496,8 @@
 
                 {/* 3. Make Payment */}
                 {modals.addPayment && (
-                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                        <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-[fade_0.2s]">
+                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                        <div className="bg-white w-full max-w-sm rounded-xl p-6 shadow-xl animate-fade">
                             <h3 className="text-lg font-bold mb-2">Record Payment</h3>
                             <p className="text-xs text-gray-400 mb-4">Payment will be deducted from the outstanding amount.</p>
                             
@@ -538,8 +505,8 @@
                                 placeholder="Amount Paid (₹)" className="w-full border p-3 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-green-500" />
                             
                             <div className="flex justify-end gap-2">
-                                <button onClick={() => setModals({...modals, addPayment: false})} className="px-4 py-2 text-gray-500">Cancel</button>
-                                <button onClick={handleAddPayment} className="px-6 py-2 bg-green-600 text-white rounded-lg">Record</button>
+                                <button onClick={() => setModals({...modals, addPayment: false})} className="px-4 py-2 text-gray-500 font-medium">Cancel</button>
+                                <button onClick={handleAddPayment} className="px-6 py-2 bg-green-600 text-white rounded-lg font-medium">Record</button>
                             </div>
                         </div>
                     </div>
